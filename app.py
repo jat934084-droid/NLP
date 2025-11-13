@@ -272,7 +272,7 @@ def app():
 
     st.markdown('<div class="page-fade">', unsafe_allow_html=True)
   # --- Tabs definition (paste this once, before using with tabs[i]:) ---
-    tabs = st.tabs(["Home", "Scraper", "Model Bench", "Fact Check"])
+tabs = st.tabs(["Home", "Scraper", "Model Bench", "Fact Check"])
 
 # ===============================
 # HOME TAB
