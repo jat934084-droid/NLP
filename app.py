@@ -282,77 +282,76 @@ def app():
 
     # SCRAPER (unchanged logic - kept simple UI)
     with tabs[1]:
-    st.markdown('<div class="panel">', unsafe_allow_html=True)
-    st.header("Politifact Scraper")
-    st.write("Scrape Politifact fact-checks based on date range.")
+        st.markdown('<div class="panel">', unsafe_allow_html=True)
+        st.header("Politifact Scraper")
+        st.write("Scrape Politifact fact-checks based on date range.")
+        
+        min_date = pd.to_datetime('2007-01-01')
+        max_date = pd.to_datetime('today').normalize()
+        
+        colA, colB = st.columns(2)
+        with colA:
+            start_date = st.date_input("Start Date", min_value=min_date, max_value=max_date, value=pd.to_datetime('2023-01-01'))
+        with colB:
+            end_date = st.date_input("End Date", min_value=min_date, max_value=max_date, value=max_date)
 
-    min_date = pd.to_datetime('2007-01-01')
-    max_date = pd.to_datetime('today').normalize()
+        st.markdown("<br>", unsafe_allow_html=True)
 
-    colA, colB = st.columns(2)
-    with colA:
-        start_date = st.date_input("Start Date", min_value=min_date, max_value=max_date, value=pd.to_datetime('2023-01-01'))
-    with colB:
-        end_date = st.date_input("End Date", min_value=min_date, max_value=max_date, value=max_date)
-
-    st.markdown("<br>", unsafe_allow_html=True)
-
-    if st.button("Scrape Politifact Data", key="scrape_btn", help="Click to start scraping"):
-        if start_date > end_date:
-            st.error("Start Date must be before or equal to End Date.")
-        else:
-            with st.spinner("Scraping Politifact…"):
-                scraped_df = scrape_data_by_date_range(pd.to_datetime(start_date), pd.to_datetime(end_date))
-
-                if scraped_df.empty:
-                    st.warning("No data scraped — try a different date range.")
+        if st.button("Scrape Politifact Data", key="scrape_btn", help="Click to start scraping"):
+            if start_date > end_date:
+                st.error("Start Date must be before or equal to End Date.")
                 else:
-                    st.success(f"Scraping complete! {len(scraped_df)} records extracted.")
-                    st.session_state['scraped_df'] = scraped_df
-                    st.download_button(
-                        "Download CSV",
-                        scraped_df.to_csv(index=False).encode('utf-8'),
-                        file_name="politifact_scraped.csv",
-                        mime="text/csv"
-                    )
+                    with st.spinner("Scraping Politifact…"):
+                        scraped_df = scrape_data_by_date_range(pd.to_datetime(start_date), pd.to_datetime(end_date))
+                        
+                        if scraped_df.empty:
+                            st.warning("No data scraped — try a different date range.")
+                            else:
+                                st.success(f"Scraping complete! {len(scraped_df)} records extracted.")
+                                st.session_state['scraped_df'] = scraped_df
+                                st.download_button(
+                                    "Download CSV",
+                                    scraped_df.to_csv(index=False).encode('utf-8'),
+                                    file_name="politifact_scraped.csv",
+                                    mime="text/csv"
+                                    )
+                                
+                                st.markdown("</div>", unsafe_allow_html=True)
 
-    st.markdown("</div>", unsafe_allow_html=True)
 
-
-    # MODEL BENCH (unchanged logic surface)
+   # MODEL BENCH (unchanged logic surface)
    with tabs[2]:
-    st.markdown('<div class="panel">', unsafe_allow_html=True)
-    st.header("Model Bench")
+       st.markdown('<div class="panel">', unsafe_allow_html=True)
+       st.header("Model Bench")
 
-    if 'scraped_df' not in st.session_state:
-        st.info("No scraped data found. Please scrape data first from the Scraper tab.")
-    else:
-        df = st.session_state['scraped_df']
-        st.write(f"Loaded dataset with **{len(df)}** items.")
+       if 'scraped_df' not in st.session_state:
+           st.info("No scraped data found. Please scrape data first from the Scraper tab." )
+           else:
+               df = st.session_state['scraped_df']
+               st.write(f"Loaded dataset with **{len(df)}** items.")
 
-        phases = ["Lexical & Morphological", "Syntactic", "Semantic", "Discourse", "Pragmatic"]
-        selected_phase = st.selectbox("Choose Feature Set:", phases, key="phase_select")
+               phases = ["Lexical & Morphological", "Syntactic", "Semantic", "Discourse", "Pragmatic"]
+               selected_phase = st.selectbox("Choose Feature Set:", phases, key="phase_select")
 
-        if st.button("Run Benchmark", key="run_bench"):
-            with st.spinner("Training and evaluating models..."):
-                df_results = evaluate_models(df, selected_phase, NLP_MODEL)
+               if st.button("Run Benchmark", key="run_bench"):
+                   with st.spinner("Training and evaluating models..."):
+                       df_results = evaluate_models(df, selected_phase, NLP_MODEL)
 
-            if df_results.empty:
-                st.warning("Model training failed or returned no results.")
-            else:
-                st.success("Benchmark Complete!")
-                st.dataframe(df_results, use_container_width=True)
-
-                st.session_state['df_results'] = df_results
-                st.session_state['selected_phase_run'] = selected_phase
+                       if df_results.empty:
+                           st.warning("Model training failed or returned no results.")
+                           else:
+                               st.success("Benchmark Complete!")
+                               st.dataframe(df_results, use_container_width=True)
+                               st.session_state['df_results'] = df_results
+                               st.session_state['selected_phase_run'] = selected_phase
 
     st.markdown('</div>', unsafe_allow_html=True)
 
     # FACT CHECK — main interactive
     with tabs[3]:
-    st.markdown('<div class="panel">', unsafe_allow_html=True)
-    st.header("Cross-Platform Fact Check — Animated Gauge")
-    st.write("Enter a claim below to query Google Fact Check archives and compute a credibility score (similarity + verdict consistency).")
+        st.markdown('<div class="panel">', unsafe_allow_html=True)
+        st.header("Cross-Platform Fact Check — Animated Gauge")
+        st.write("Enter a claim below to query Google Fact Check archives and compute a credibility score (similarity + verdict consistency).")
 
     col1, col2 = st.columns([3,1])
     with col1:
@@ -369,7 +368,7 @@ def app():
             circ=f"{circ:.2f}",
             offset=f"{offset:.2f}",
             percent="--"
-        )
+            )
         st.markdown(initial_svg, unsafe_allow_html=True)
 
     st.markdown("<br>", unsafe_allow_html=True)
