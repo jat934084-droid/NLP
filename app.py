@@ -408,4 +408,4 @@ with tabs[2]:
 with tabs[3]:
     st.markdown("<div class='glass-card'>", unsafe_allow_html=True)
     st.header("Cross-Platform Fact Check (Google FactCheck Tools)")
-    st.write("Query Google FactCheck Tools API. Configure your API key in Streamlit Secrets to avoid usage limits.
+    st.write("Query Google FactCheck Tools API. Configure your API key in Streamlit Secrets to avoid usage limits.")
