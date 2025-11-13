@@ -271,16 +271,19 @@ def app():
     st.markdown('<div class="topbar"><h1 style="margin:0;font-size:1.9rem">Global FactCheck Network</h1><div style="opacity:.95;font-weight:500">Al-Jazeera inspired • Premium editorial UI</div></div>', unsafe_allow_html=True)
 
     st.markdown('<div class="page-fade">', unsafe_allow_html=True)
-    tabs = st.tabs(["Home", "Scraper", "Model Bench", "Fact Check"])
+  # --- Tabs definition (paste this once, before using with tabs[i]:) ---
+tabs = st.tabs(["Home", "Scraper", "Model Bench", "Fact Check"])
 
-    # HOME
-    with tabs[0]:
-        st.markdown('<div class="panel">', unsafe_allow_html=True)
-        st.subheader("Welcome — Premium Animated FactCheck Portal")
-        st.write("This portal scrapes Politifact, trains NLP comparators and cross-checks claims using verified fact-check archives.\n\nNow with animated UI and a gold circular credibility gauge.")
-        st.markdown("</div>", unsafe_allow_html=True)
+# ===============================
+# HOME TAB
+# ===============================
+with tabs[0]:
+    st.markdown('<div class="panel">', unsafe_allow_html=True)
+    st.subheader("Welcome — Premium Animated FactCheck Portal")
+    st.write("This portal scrapes Politifact, trains NLP comparators and cross-checks claims using verified fact-check archives.")
+    st.markdown("</div>", unsafe_allow_html=True)
 
-    # ===============================
+# ===============================
 # SCRAPER TAB
 # ===============================
 with tabs[1]:
@@ -436,7 +439,6 @@ with tabs[3]:
                     st.markdown("---")
 
     st.markdown("</div>", unsafe_allow_html=True)
-
 
 
 if __name__ == "__main__":
