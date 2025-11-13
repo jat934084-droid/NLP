@@ -27,5 +27,4 @@ matplotlib>=3.8.0
 tqdm>=4.66.1
 
 # --- Optional: SpaCy English model wheel ---
-# (Streamlit Cloud doesn't auto-install models; include this if deploying)
 https://github.com/explosion/spacy-models/releases/download/en_core_web_sm-3.8.0/en_core_web_sm-3.8.0-py3-none-any.whl
