@@ -282,89 +282,175 @@ def app():
 
     # SCRAPER (unchanged logic - kept simple UI)
     with tabs[1]:
-        st.markdown('<div class="panel">', unsafe_allow_html=True)
-        st.header("Politifact Scraper")
-        st.write("Use the scraper tab if you want to harvest Politifact claims for local model training.")
-        st.markdown("</div>", unsafe_allow_html=True)
+    st.markdown('<div class="panel">', unsafe_allow_html=True)
+    st.header("Politifact Scraper")
+    st.write("Scrape Politifact fact-checks based on date range.")
+
+    min_date = pd.to_datetime('2007-01-01')
+    max_date = pd.to_datetime('today').normalize()
+
+    colA, colB = st.columns(2)
+    with colA:
+        start_date = st.date_input("Start Date", min_value=min_date, max_value=max_date, value=pd.to_datetime('2023-01-01'))
+    with colB:
+        end_date = st.date_input("End Date", min_value=min_date, max_value=max_date, value=max_date)
+
+    st.markdown("<br>", unsafe_allow_html=True)
+
+    if st.button("Scrape Politifact Data", key="scrape_btn", help="Click to start scraping"):
+        if start_date > end_date:
+            st.error("Start Date must be before or equal to End Date.")
+        else:
+            with st.spinner("Scraping Politifact…"):
+                scraped_df = scrape_data_by_date_range(pd.to_datetime(start_date), pd.to_datetime(end_date))
+
+                if scraped_df.empty:
+                    st.warning("No data scraped — try a different date range.")
+                else:
+                    st.success(f"Scraping complete! {len(scraped_df)} records extracted.")
+                    st.session_state['scraped_df'] = scraped_df
+                    st.download_button(
+                        "Download CSV",
+                        scraped_df.to_csv(index=False).encode('utf-8'),
+                        file_name="politifact_scraped.csv",
+                        mime="text/csv"
+                    )
+
+    st.markdown("</div>", unsafe_allow_html=True)
+
 
     # MODEL BENCH (unchanged logic surface)
-    with tabs[2]:
-        st.markdown('<div class="panel">', unsafe_allow_html=True)
-        st.header("Model Bench")
-        st.write("Train & evaluate models on scraped dataset (same logic as before).")
-        st.markdown("</div>", unsafe_allow_html=True)
+   with tabs[2]:
+    st.markdown('<div class="panel">', unsafe_allow_html=True)
+    st.header("Model Bench")
+
+    if 'scraped_df' not in st.session_state:
+        st.info("No scraped data found. Please scrape data first from the Scraper tab.")
+    else:
+        df = st.session_state['scraped_df']
+        st.write(f"Loaded dataset with **{len(df)}** items.")
+
+        phases = ["Lexical & Morphological", "Syntactic", "Semantic", "Discourse", "Pragmatic"]
+        selected_phase = st.selectbox("Choose Feature Set:", phases, key="phase_select")
+
+        if st.button("Run Benchmark", key="run_bench"):
+            with st.spinner("Training and evaluating models..."):
+                df_results = evaluate_models(df, selected_phase, NLP_MODEL)
+
+            if df_results.empty:
+                st.warning("Model training failed or returned no results.")
+            else:
+                st.success("Benchmark Complete!")
+                st.dataframe(df_results, use_container_width=True)
+
+                st.session_state['df_results'] = df_results
+                st.session_state['selected_phase_run'] = selected_phase
+
+    st.markdown('</div>', unsafe_allow_html=True)
 
     # FACT CHECK — main interactive
     with tabs[3]:
-        st.markdown('<div class="panel">', unsafe_allow_html=True)
-        st.header("Cross-Platform Fact Check — Animated Gauge")
-        st.write("Enter a claim to query the Google Fact Check archive and compute a credibility score (similarity + verdict consistency).")
+    st.markdown('<div class="panel">', unsafe_allow_html=True)
+    st.header("Cross-Platform Fact Check — Animated Gauge")
+    st.write("Enter a claim below to query Google Fact Check archives and compute a credibility score (similarity + verdict consistency).")
 
-        col1, col2 = st.columns([3,1])
-        with col1:
-            user_claim = st.text_area("Enter claim / headline to verify", height=120, key="fact_claim")
-            max_results = st.slider("Max results to retrieve", min_value=3, max_value=15, value=8)
-        with col2:
-            st.markdown("<div style='text-align:center;margin-top:6px'><strong class='small'>Credibility Meter</strong></div>", unsafe_allow_html=True)
-            # placeholder gauge (initial 0)
-            initial_svg = GAUGE_SVG_TEMPLATE.format(circ=301.44, offset=301.44, percent="--")
-            st.markdown(initial_svg, unsafe_allow_html=True)
+    col1, col2 = st.columns([3,1])
+    with col1:
+        user_claim = st.text_area("Enter claim / headline to verify", height=120, key="fact_claim")
+        max_results = st.slider("Max results to retrieve", min_value=3, max_value=15, value=8)
+    with col2:
+        st.markdown("<div style='text-align:center;margin-top:6px'><strong class='small'>Credibility Meter</strong></div>", unsafe_allow_html=True)
 
-        if st.button("Run Fact Check", key="run_fact"):
-            if not user_claim or not user_claim.strip():
-                st.warning("Please enter a claim to check.")
+        # INITIAL gauge render (empty gauge)
+        r = 48.0
+        circ = 2 * np.pi * r
+        offset = circ  # start at zero progress
+        initial_svg = GAUGE_SVG_TEMPLATE.format(
+            circ=f"{circ:.2f}",
+            offset=f"{offset:.2f}",
+            percent="--"
+        )
+        st.markdown(initial_svg, unsafe_allow_html=True)
+
+    st.markdown("<br>", unsafe_allow_html=True)
+
+    if st.button("Run Fact Check", key="run_fact"):
+        if not user_claim or not user_claim.strip():
+            st.warning("Please enter a claim to check.")
+        else:
+            with st.spinner("Querying fact-check archives and computing credibility…"):
+                # GET FACT CHECK RESULTS
+                results = get_fact_check_results(user_claim, max_results)
+
+                # COMPUTE ACCURACY SCORE
+                computed = compute_fact_accuracy(user_claim, results)
+                overall_pct = computed.get("overall_pct", 0.0)
+                details = computed.get("details", [])
+
+            # GAUGE CALCULATION
+            r = 48.0
+            circ = 2 * np.pi * r
+            offset = circ * (1 - overall_pct / 100.0)
+            offset = max(0.0, min(offset, circ))
+
+            # GAUGE SVG WITH CORRECT HTML RENDERING
+            svg = GAUGE_SVG_TEMPLATE.format(
+                circ=f"{circ:.2f}",
+                offset=f"{offset:.2f}",
+                percent=f"{overall_pct:.1f}"
+            )
+            st.markdown(svg, unsafe_allow_html=True)
+
+            st.markdown(f"### Overall Credibility Accuracy: **{overall_pct:.1f}%**")
+            st.write("Calculated using: 70% similarity (TF-IDF cosine) + 30% fact-check verdict match.")
+
+            st.markdown("<hr>", unsafe_allow_html=True)
+
+            if not details:
+                st.info("No fact-check results were found for this claim.")
             else:
-                with st.spinner("Querying fact-check archives and computing credibility..."):
-                    results = get_fact_check_results(user_claim, max_results)
-                    computed = compute_fact_accuracy(user_claim, results)
-                    overall_pct = computed.get("overall_pct", 0.0)
-                    details = computed.get("details", [])
+                # BEST MATCH CARD
+                best = details[0]
 
-                # Render animated gauge - compute circle geometry (r=48 => circumference = 2*pi*48)
-                r = 48.0
-                circ = 2 * np.pi * r
-                # stroke-dashoffset corresponding to percent (0% => full circ, 100% => 0)
-                offset = circ * (1 - (overall_pct / 100.0))
-                # clamp
-                if offset < 0:
-                    offset = 0.0
-                if offset > circ:
-                    offset = circ
-
-                # inject SVG with computed values
-                svg = GAUGE_SVG_TEMPLATE.format(circ=f"{circ:.2f}", offset=f"{offset:.2f}", percent=f"{overall_pct:.1f}")
-                st.markdown(svg, unsafe_allow_html=True)
-
-                # Show summary cards + animated list
-                st.markdown(f"### Overall Credibility Accuracy: **{overall_pct:.1f}%**")
-                st.write("**How this was computed:** 70% similarity (TF-IDF cosine) + 30% fact-check verdict match (when available).")
-                st.markdown("---")
-
-                if not details:
-                    st.info("No fact-check results found for this claim.")
-                else:
-                    # Best match
-                    best = details[0]
-                    st.markdown('<div class="card" style="display:flex;gap:12px;align-items:center">', unsafe_allow_html=True)
-                    st.markdown(f'<div style="flex:1"><div class="headline">{best["title"] or best["publisher"]}</div><div class="meta">Source: <strong>{best["publisher"]}</strong> • Verdict: <strong>{best["rating"] or "No Rating"}</strong></div><div style="margin-top:8px" class="small">Similarity: {best["similarity"]:.2f} • Combined score: {best["combined"]:.2f}</div></div><div style="min-width:120px">{""}</div>', unsafe_allow_html=True)
-                    if best.get("url"):
-                        st.markdown(f'<div style="text-align:right;"><a class="result-link" target="_blank" href="{best["url"]}">Read full article</a></div>', unsafe_allow_html=True)
-                    st.markdown('</div>', unsafe_allow_html=True)
-
-                    # List top results with staggered reveal (use small animation delay via inline style)
-                    st.markdown("<h4 style='margin-top:12px'>Top fact-check matches</h4>", unsafe_allow_html=True)
-                    for i, d in enumerate(details[:max_results]):
-                        # add small inline style to create slightly staggered reveal (works as animation timing hint)
-                        delay = 0.06 * i
-                        item_html = f"""
-                        <div class="card result-item" style="animation-delay:{delay}s">
-                          <div class="headline">{d['title'] or d['publisher']}</div>
-                          <div class="meta">Source: <strong>{d['publisher']}</strong> • Verdict: <strong>{d['rating'] or 'No Rating'}</strong></div>
-                          <div class="small" style="margin-top:6px">Similarity: {d['similarity']:.3f} • Combined: {d['combined']:.3f}</div>
-                          <div style="margin-top:8px"><a class="result-link" target="_blank" href="{d['url']}">Open article</a></div>
+                st.markdown('<div class="card" style="display:flex;gap:12px;align-items:center;">', unsafe_allow_html=True)
+                st.markdown(
+                    f"""
+                    <div style='flex:1'>
+                        <div class="headline">{best["title"] or best["publisher"]}</div>
+                        <div class="meta">Source: <strong>{best["publisher"]}</strong> • Verdict: <strong>{best["rating"] or "No Rating"}</strong></div>
+                        <div style="margin-top:8px" class="small">
+                            Similarity: {best["similarity"]:.2f} • Combined: {best["combined"]:.2f}
                         </div>
-                        """
-                        st.markdown(item_html, unsafe_allow_html=True)
+                    </div>
+                    """,
+                    unsafe_allow_html=True
+                )
+                if best["url"]:
+                    st.markdown(
+                        f"<a class='result-link' target='_blank' href='{best['url']}'>Open Full Article</a>",
+                        unsafe_allow_html=True
+                    )
+                st.markdown('</div>', unsafe_allow_html=True)
+
+                # LIST OTHER MATCHES
+                st.markdown("<h4 style='margin-top:18px'>Top fact-check matches</h4>", unsafe_allow_html=True)
+
+                for i, d in enumerate(details[:max_results]):
+                    delay = 0.08 * i  # stagger animation
+                    item = f"""
+                    <div class="card result-item" style="animation-delay:{delay}s">
+                        <div class="headline">{d['title']}</div>
+                        <div class="meta">
+                            Source: <strong>{d['publisher']}</strong> • Verdict:
+                            <strong>{d['rating'] or "No Rating"}</strong>
+                        </div>
+                        <div class="small" style="margin-top:6px">
+                            Similarity: {d['similarity']:.3f} • Combined: {d['combined']:.3f}
+                        </div>
+                        <a class="result-link" target="_blank" href="{d['url']}">Open Article</a>
+                    </div>
+                    """
+                    st.markdown(item, unsafe_allow_html=True)
 
     st.markdown('</div>', unsafe_allow_html=True)
 
