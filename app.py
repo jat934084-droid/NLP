@@ -1,4 +1,4 @@
-# app.py
+# app.py — Full integrated app (UI + Scraper + ML accuracy + FactCheck API)
 import streamlit as st
 import pandas as pd
 import numpy as np
@@ -7,14 +7,13 @@ from bs4 import BeautifulSoup
 import re
 from urllib.parse import urljoin, quote_plus
 import time
-import random
 import logging
 import os
 from typing import Optional, List, Tuple
 from ftfy import fix_text
 
 # ML & NLP
-from sklearn.feature_extraction.text import TfidfVectorizer, CountVectorizer
+from sklearn.feature_extraction.text import TfidfVectorizer
 from sklearn.model_selection import train_test_split, StratifiedKFold
 from sklearn.linear_model import LogisticRegression
 from sklearn.naive_bayes import MultinomialNB
@@ -22,115 +21,82 @@ from sklearn.tree import DecisionTreeClassifier
 from sklearn.svm import SVC
 from sklearn.metrics import accuracy_score, f1_score, precision_score, recall_score
 from textblob import TextBlob
-import spacy
-from spacy.lang.en.stop_words import STOP_WORDS
 
-# Optional/Imbalance
+# imbalanced-learn
 from imblearn.over_sampling import SMOTE
 from imblearn.pipeline import Pipeline as ImbPipeline
 
-# ------------------------------------------------------------------------------
-# Basic config
-# ------------------------------------------------------------------------------
+# spaCy (attempt to load, but app will show error with instructions if not available)
+import spacy
+from spacy.lang.en.stop_words import STOP_WORDS
+
+# ---------------------------
+# Basic config & logger
+# ---------------------------
 st.set_page_config(page_title="AI Fact-Check — Premium", layout="wide")
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)
 
-# ------------------------------------------------------------------------------
-# Helper: API KEY
-# ------------------------------------------------------------------------------
-from FACTCHECK_API_KEY import get_factcheck_api_key
-API_KEY = get_factcheck_api_key()
+# ---------------------------
+# API Key handling (no external file)
+# ---------------------------
+# Optional: set FACTCHECK_API_KEY in Streamlit Secrets or as environment variable
+DEFAULT_API_KEY = "AIzaSyDmFciPOWcIuxDKilN1WO-SmMkwXUxZrUE"
+API_KEY = None
+try:
+    API_KEY = st.secrets.get("FACTCHECK_API_KEY", DEFAULT_API_KEY) if hasattr(st, "secrets") else os.environ.get("FACTCHECK_API_KEY", DEFAULT_API_KEY)
+except Exception:
+    API_KEY = os.environ.get("FACTCHECK_API_KEY", DEFAULT_API_KEY)
 
-# ------------------------------------------------------------------------------
-# CSS: premium UI, sidebar, glass cards, loaders, etc.
-# ------------------------------------------------------------------------------
+# ---------------------------
+# Styling (premium UI + sidebar + loaders)
+# ---------------------------
 st.markdown(
     """
     <style>
-    /* ===== Page & fonts ===== */
     @import url('https://fonts.googleapis.com/css2?family=Poppins:wght@400;600;800&display=swap');
     .stApp { font-family: 'Poppins', sans-serif; background: linear-gradient(135deg,#05060a 0%, #0b1220 100%); color: #e6eef3; }
-
-    /* ===== Header ===== */
     .app-title { font-size:44px; font-weight:800; text-align:center; margin-bottom:8px;
                  background: linear-gradient(90deg,#ff3c8c,#6c63ff); -webkit-background-clip:text; -webkit-text-fill-color:transparent; }
 
-    /* ===== Glass Card ===== */
-    .glass-card {
-        background: rgba(255,255,255,0.03);
-        border-radius: 16px;
-        padding: 18px;
-        border: 1px solid rgba(255,255,255,0.04);
-        box-shadow: 0 8px 30px rgba(0,0,0,0.6);
-        margin-bottom: 12px;
-    }
+    .glass-card { background: rgba(255,255,255,0.03); border-radius: 16px; padding: 18px; border: 1px solid rgba(255,255,255,0.04); box-shadow: 0 8px 30px rgba(0,0,0,0.6); margin-bottom: 12px; }
 
-    /* ===== Buttons ===== */
-    .stButton>button {
-        background: linear-gradient(90deg,#ff3c8c,#6c63ff) !important;
-        color: white !important;
-        padding: 10px 18px;
-        border-radius: 12px;
-        font-weight:700;
-        border: none;
-        box-shadow: 0 8px 20px rgba(108,99,255,0.12);
-    }
+    .stButton>button { background: linear-gradient(90deg,#ff3c8c,#6c63ff) !important; color: white !important; padding: 10px 18px; border-radius: 12px; font-weight:700; border: none; box-shadow: 0 8px 20px rgba(108,99,255,0.12); }
     .stButton>button:hover { transform: translateY(-3px); box-shadow: 0 16px 30px rgba(108,99,255,0.18); }
 
-    /* ===== Inputs ===== */
     div[data-baseweb="input"] > div { background: rgba(255,255,255,0.02) !important; border-radius:10px; border:1px solid rgba(255,255,255,0.06) !important; color: #e6eef3 !important; }
 
-    /* ===== Tabs ===== */
-    .stTabs [data-baseweb="tab"] {
-        padding: 10px 18px;
-        border-radius: 10px;
-        background: rgba(255,255,255,0.02);
-        border: 1px solid rgba(255,255,255,0.04);
-        color: #e6eef3;
-        font-weight:700;
-    }
-    .stTabs [aria-selected="true"] {
-        background: linear-gradient(90deg,#ff3c8c,#6c63ff) !important;
-        color: white !important;
-    }
+    .stTabs [data-baseweb="tab"] { padding: 10px 18px; border-radius: 10px; background: rgba(255,255,255,0.02); border: 1px solid rgba(255,255,255,0.04); color: #e6eef3; font-weight:700; }
+    .stTabs [aria-selected="true"] { background: linear-gradient(90deg,#ff3c8c,#6c63ff) !important; color: white !important; }
 
-    /* ===== Sidebar ===== */
-    .sidebar-title { font-size:20px; font-weight:800; text-align:center; margin-bottom:8px;
-                     background: linear-gradient(90deg,#ff3c8c,#6c63ff); -webkit-background-clip:text; -webkit-text-fill-color:transparent; }
+    .sidebar-title { font-size:20px; font-weight:800; text-align:center; margin-bottom:8px; background: linear-gradient(90deg,#ff3c8c,#6c63ff); -webkit-background-clip:text; -webkit-text-fill-color:transparent; }
     .sidebar-box { background: rgba(255,255,255,0.02); padding:12px; border-radius:12px; margin-bottom:8px; border:1px solid rgba(255,255,255,0.04); }
     .sidebar-item { padding:8px 12px; border-radius:10px; transition:0.15s; cursor:pointer; font-weight:600; color:#e6eef3; }
     .sidebar-item:hover { transform: translateX(6px); background: linear-gradient(90deg,#ff3c8c,#6c63ff); }
 
-    /* ===== Fact result card ===== */
     .fact-card { padding:12px; border-radius:10px; margin-bottom:10px; background: rgba(255,255,255,0.02); border:1px solid rgba(255,255,255,0.03); }
 
-    /* ===== Loaders ===== */
     .loader-container { width:100%; text-align:center; padding:14px 0; }
     .ai-loader { width:72px; height:72px; border-radius:50%; border-top:5px solid #ff3c8c; border-right:5px solid transparent; animation:spin 1s linear infinite; margin:auto; box-shadow:0 0 18px #ff3c8c55; }
     @keyframes spin { 0%{transform:rotate(0deg);} 100%{transform:rotate(360deg);} }
-
     .pulse-loader { display:flex; justify-content:center; margin-top:10px; }
     .pulse-loader div { width:12px; height:12px; margin:4px; border-radius:50%; background:linear-gradient(90deg,#ff3c8c,#6c63ff); animation:pulse 0.6s infinite alternate; }
     .pulse-loader div:nth-child(2) { animation-delay: 0.18s; }
     .pulse-loader div:nth-child(3) { animation-delay: 0.36s; }
     @keyframes pulse { from { transform:scale(1); opacity:0.6;} to { transform:scale(1.6); opacity:1;} }
-
     .bar-loader { width:220px; height:10px; background: rgba(255,255,255,0.06); border-radius:12px; margin:auto; overflow:hidden; box-shadow:0 0 12px rgba(108,99,255,0.12); }
     .bar-inner { width:40%; height:100%; background: linear-gradient(90deg,#6c63ff,#ff3c8c); animation:loading 1.2s infinite; }
     @keyframes loading { 0% { margin-left:-40%; } 100% { margin-left:140%; } }
 
-    /* small muted text */
     .muted { color:#b8c6d6; font-size:0.95rem; }
-
     </style>
     """,
     unsafe_allow_html=True,
 )
 
-# ------------------------------------------------------------------------------
+# ---------------------------
 # Sidebar content
-# ------------------------------------------------------------------------------
+# ---------------------------
 with st.sidebar:
     st.markdown("<div class='sidebar-box'><h2 class='sidebar-title'>⚡ AI Fact-Check</h2></div>", unsafe_allow_html=True)
     st.markdown("<div class='sidebar-box'>", unsafe_allow_html=True)
@@ -141,9 +107,9 @@ with st.sidebar:
     st.markdown("<div class='sidebar-item'>📊 Accuracy</div>", unsafe_allow_html=True)
     st.markdown("</div>", unsafe_allow_html=True)
 
-# ------------------------------------------------------------------------------
+# ---------------------------
 # Text cleaning helpers
-# ------------------------------------------------------------------------------
+# ---------------------------
 def clean_text(s: Optional[str]) -> Optional[str]:
     if s is None:
         return None
@@ -153,37 +119,35 @@ def clean_text(s: Optional[str]) -> Optional[str]:
         pass
     return " ".join(str(s).split()).strip()
 
-# ------------------------------------------------------------------------------
+# ---------------------------
 # Load spaCy model safely
-# ------------------------------------------------------------------------------
+# ---------------------------
 @st.cache_resource
 def load_spacy_model():
     try:
         nlp_local = spacy.load("en_core_web_sm")
         return nlp_local
     except Exception as e:
-        # Provide actionable message inside the app but do not crash the whole app
-        st.error("SpaCy model 'en_core_web_sm' not installed. Add the model wheel to requirements.txt (see instructions).")
+        st.error("SpaCy model 'en_core_web_sm' not installed in the environment. Add the model wheel to requirements or run: python -m spacy download en_core_web_sm locally.")
         raise e
 
 try:
     NLP = load_spacy_model()
 except Exception:
-    # we stop here so the rest of the app does not crash silently
     st.stop()
 
 stop_words = STOP_WORDS
 
-# ------------------------------------------------------------------------------
-# Politifact scraping (safe/simple)
-# ------------------------------------------------------------------------------
+# ---------------------------
+# Politifact scraping
+# ---------------------------
 @st.cache_data(ttl=60*60*24)
 def scrape_politifact(start_date: pd.Timestamp, end_date: pd.Timestamp, max_pages: int = 50) -> pd.DataFrame:
     base = "https://www.politifact.com/factchecks/list/"
     rows = []
-    visited = set()
     url = base
     page = 0
+    visited = set()
     while url and page < max_pages:
         page += 1
         try:
@@ -215,19 +179,16 @@ def scrape_politifact(start_date: pd.Timestamp, end_date: pd.Timestamp, max_page
                 break
             if not (start_date <= claim_date <= end_date):
                 continue
-            # statement
             stmt = None
             stmt_block = card.find("div", class_="m-statement__quote")
             if stmt_block:
                 a = stmt_block.find("a", href=True)
                 if a:
                     stmt = clean_text(a.get_text(" ", strip=True))
-            # label
             label = None
             img = card.find("img", alt=True)
             if img and 'alt' in img.attrs:
                 label = clean_text(img['alt'].title())
-            # author/source
             source = None
             src_a = card.find("a", class_="m-statement__name")
             if src_a:
@@ -246,9 +207,9 @@ def scrape_politifact(start_date: pd.Timestamp, end_date: pd.Timestamp, max_page
         df.to_csv("politifact_data.csv", index=False)
     return df
 
-# ------------------------------------------------------------------------------
-# Feature extraction helpers
-# ------------------------------------------------------------------------------
+# ---------------------------
+# Feature helpers
+# ---------------------------
 def semantic_features(texts: List[str]) -> pd.DataFrame:
     rows = []
     for t in texts:
@@ -256,9 +217,6 @@ def semantic_features(texts: List[str]) -> pd.DataFrame:
         rows.append([b.sentiment.polarity, b.sentiment.subjectivity])
     return pd.DataFrame(rows, columns=["polarity", "subjectivity"])
 
-# ------------------------------------------------------------------------------
-# Binary mapping of Politifact labels to TRUE(1)/FALSE(0)
-# ------------------------------------------------------------------------------
 def map_label_to_binary(label):
     REAL_LABELS = ["True", "No Flip", "Mostly True", "Half Flip", "Half True"]
     FAKE_LABELS = ["False", "Barely True", "Pants On Fire", "Full Flop"]
@@ -276,36 +234,24 @@ def map_label_to_binary(label):
         return 0
     return np.nan
 
-# ------------------------------------------------------------------------------
-# Model training for FACT-CHECK ACCURACY (TRUE/FALSE) - logistic as default
-# ------------------------------------------------------------------------------
+# ---------------------------
+# Train accuracy model (TF-IDF + Logistic)
+# ---------------------------
 @st.cache_resource
 def train_factcheck_accuracy_model(return_model=False):
-    # load scraped csv if present
-    if os.path.exists("politifact_data.csv"):
-        df = pd.read_csv("politifact_data.csv")
-    else:
-        st.warning("politifact_data.csv not found in working dir — you can scrape using Scraper tab.")
-        raise FileNotFoundError("politifact_data.csv missing")
-
+    if not os.path.exists("politifact_data.csv"):
+        raise FileNotFoundError("politifact_data.csv missing. Use Scraper tab or upload dataset.")
+    df = pd.read_csv("politifact_data.csv")
     df["target"] = df["label"].apply(map_label_to_binary)
     df = df.dropna(subset=["target"])
     df = df[df["statement"].astype(str).str.len() > 10]
-
     X_texts = df["statement"].astype(str).tolist()
     y = df["target"].astype(int).values
-
-    # vectorizer
     vectorizer = TfidfVectorizer(max_features=6000, ngram_range=(1,2))
     X = vectorizer.fit_transform(X_texts)
-
-    # train/test split
     X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, stratify=y, random_state=42)
-
-    # model (balanced logistic)
     model = LogisticRegression(max_iter=2000, class_weight='balanced', solver='liblinear', random_state=42)
     model.fit(X_train, y_train)
-
     preds = model.predict(X_test)
     metrics = {
         "accuracy": float(accuracy_score(y_test, preds)),
@@ -313,15 +259,11 @@ def train_factcheck_accuracy_model(return_model=False):
         "precision": float(precision_score(y_test, preds, zero_division=0)),
         "recall": float(recall_score(y_test, preds, zero_division=0))
     }
-
     if return_model:
         return model, vectorizer, metrics
     return metrics
 
-# wrapper to produce callable predictor (non-cached)
 def build_predictor():
-    if not os.path.exists("politifact_data.csv"):
-        raise FileNotFoundError("politifact_data.csv missing. Scrape or add dataset.")
     model, vectorizer, _ = train_factcheck_accuracy_model(return_model=True)
     def predict(statement: str):
         v = vectorizer.transform([statement])
@@ -329,9 +271,9 @@ def build_predictor():
         return "TRUE" if int(p) == 1 else "FALSE"
     return predict
 
-# ------------------------------------------------------------------------------
-# Google Fact Check API function
-# ------------------------------------------------------------------------------
+# ---------------------------
+# Google FactCheck API
+# ---------------------------
 def get_fact_check_results(query: str, api_key: str = API_KEY):
     if not api_key:
         return []
@@ -356,21 +298,19 @@ def get_fact_check_results(query: str, api_key: str = API_KEY):
         logger.warning(f"FactCheck API error: {e}")
         return []
 
-# ------------------------------------------------------------------------------
-# UI: Tabs and functionality
-# ------------------------------------------------------------------------------
+# ---------------------------
+# UI: Tabs
+# ---------------------------
 st.markdown("<div class='app-title'>🚀 AI Fact-Check — Premium Dashboard</div>", unsafe_allow_html=True)
 tabs = st.tabs(["Home", "Scraper", "Model Showdown", "Fact Check", "Fact-Check Accuracy"])
 
-# --------------------- HOME ---------------------
+# HOME
 with tabs[0]:
     st.markdown("<div class='glass-card'>", unsafe_allow_html=True)
     st.markdown("<h2 style='margin:0; font-size:22px; font-weight:800; background:linear-gradient(90deg,#6c63ff,#ff3c8c); -webkit-background-clip:text; -webkit-text-fill-color:transparent;'>Welcome</h2>", unsafe_allow_html=True)
-    st.write("This portal helps you scrape Politifact, train models to classify statements as TRUE/FALSE, evaluate models, and cross-check claims using Google's FactCheck Tools.")
+    st.write("This portal scrapes Politifact, trains models to classify statements as TRUE/FALSE, evaluates models, and cross-checks claims using Google's FactCheck Tools.")
     st.markdown("<hr/>", unsafe_allow_html=True)
-
     col1, col2, col3 = st.columns([1,1,1])
-    # stat cards (you can make these dynamic by reading dataset)
     with col1:
         st.markdown("<div class='glass-card'><h3 style='margin:0'>📰 Scraped Claims</h3><h2 style='margin:0'>—</h2><p class='muted'>Use Scraper tab to fetch data</p></div>", unsafe_allow_html=True)
     with col2:
@@ -379,11 +319,11 @@ with tabs[0]:
         st.markdown("<div class='glass-card'><h3 style='margin:0'>📊 Typical Accuracy</h3><h2 style='margin:0'>~70-88%</h2><p class='muted'>Varies by features & dataset</p></div>", unsafe_allow_html=True)
     st.markdown("</div>", unsafe_allow_html=True)
 
-# --------------------- SCRAPER ---------------------
+# SCRAPER
 with tabs[1]:
     st.markdown("<div class='glass-card'>", unsafe_allow_html=True)
     st.header("Politifact Scraper")
-    st.write("Scrape Politifact claims by date range and save to `politifact_data.csv` in the app folder.")
+    st.write("Scrape Politifact claims by date range and save to `politifact_data.csv`.")
     min_date = pd.to_datetime("2007-01-01")
     max_date = pd.to_datetime("today").normalize()
     start_date = st.date_input("Start date", min_value=min_date, max_value=max_date, value=pd.to_datetime("2023-01-01"))
@@ -392,7 +332,6 @@ with tabs[1]:
         if start_date > end_date:
             st.error("Start date must be <= end date.")
         else:
-            # Animated loader
             st.markdown("<div class='loader-container'><div class='ai-loader'></div><div style='margin-top:8px; font-weight:700; background:linear-gradient(90deg,#ff3c8c,#6c63ff); -webkit-background-clip:text; -webkit-text-fill-color:transparent;'>⚡ Scraping Politifact...</div></div>", unsafe_allow_html=True)
             try:
                 df_scraped = scrape_politifact(pd.to_datetime(start_date), pd.to_datetime(end_date), max_pages=80)
@@ -405,12 +344,11 @@ with tabs[1]:
                 st.error(f"Scraping failed: {e}")
     st.markdown("</div>", unsafe_allow_html=True)
 
-# --------------------- MODEL SHOWDOWN (simplified) ---------------------
+# MODEL SHOWDOWN
 with tabs[2]:
     st.markdown("<div class='glass-card'>", unsafe_allow_html=True)
     st.header("Model Showdown (Quick Compare)")
-    st.write("Train & compare a few classical models using TF-IDF features. Requires politifact_data.csv to exist.")
-
+    st.write("Train & compare classical models using TF-IDF features. Requires politifact_data.csv.")
     if not os.path.exists("politifact_data.csv"):
         st.info("No local politifact_data.csv found. Scrape in Scraper tab first.")
     else:
@@ -423,17 +361,14 @@ with tabs[2]:
                 df_local = df_local[df_local["statement"].astype(str).str.len() > 10]
                 X_texts = df_local["statement"].astype(str).tolist()
                 y = df_local["target"].astype(int).values
-
                 vect = TfidfVectorizer(max_features=5000, ngram_range=(1,2))
                 X = vect.fit_transform(X_texts)
-
                 models = {
                     "Naive Bayes": MultinomialNB(),
                     "Logistic Regression": LogisticRegression(max_iter=2000, solver='liblinear', class_weight='balanced'),
                     "SVM (linear)": SVC(kernel='linear', C=0.5, class_weight='balanced'),
                     "Decision Tree": DecisionTreeClassifier(class_weight='balanced', random_state=42)
                 }
-
                 results = []
                 skf = StratifiedKFold(n_splits=4, shuffle=True, random_state=42)
                 for name, clf in models.items():
@@ -469,75 +404,8 @@ with tabs[2]:
                 st.error(f"Model showdown failed: {e}")
     st.markdown("</div>", unsafe_allow_html=True)
 
-# --------------------- FACT CHECK (Google API) ---------------------
+# FACT CHECK (Google API)
 with tabs[3]:
     st.markdown("<div class='glass-card'>", unsafe_allow_html=True)
     st.header("Cross-Platform Fact Check (Google FactCheck Tools)")
-    st.write("This will query Google FactCheck Tools API. Configure API key in Streamlit secrets or environment variable.")
-    query = st.text_input("Enter a claim or headline to verify:")
-    if st.button("Search FactChecks"):
-        if not query or len(query.strip()) < 5:
-            st.warning("Enter a longer claim.")
-        else:
-            st.markdown("<div class='bar-loader'><div class='bar-inner'></div></div>", unsafe_allow_html=True)
-            results = get_fact_check_results(query)
-            if not results:
-                st.info("No verified fact-checks found for this query (or API key missing/limit exceeded).")
-            else:
-                st.success(f"Found {len(results)} result(s).")
-                for r in results:
-                    st.markdown("<div class='fact-card'>", unsafe_allow_html=True)
-                    st.markdown(f"**Claim:** {r.get('text','—')}")
-                    st.markdown(f"**Source:** {r.get('publisher','Unknown')}")
-                    st.markdown(f"**Verdict:** {r.get('rating','No Rating')}")
-                    if r.get('url'):
-                        st.markdown(f"[Read full review]({r.get('url')})")
-                    st.markdown("</div>", unsafe_allow_html=True)
-    st.markdown("</div>", unsafe_allow_html=True)
-
-# --------------------- FACT CHECK ACCURACY ---------------------
-with tabs[4]:
-    st.markdown("<div class='glass-card'>", unsafe_allow_html=True)
-    st.header("ML Fact-Check Accuracy (TRUE vs FALSE)")
-    st.write("Train a TF-IDF + Logistic model to classify Politifact statements as TRUE/FALSE. Requires politifact_data.csv.")
-
-    colA, colB = st.columns([1,2])
-    with colA:
-        if st.button("Train Accuracy Model"):
-            if not os.path.exists("politifact_data.csv"):
-                st.error("politifact_data.csv not found. Scrape first or upload the dataset.")
-            else:
-                st.markdown("<div class='loader-container'><div class='ai-loader'></div><div style='margin-top:8px; font-weight:700; background:linear-gradient(90deg,#ff3c8c,#6c63ff); -webkit-background-clip:text; -webkit-text-fill-color:transparent;'>⚡ Training Accuracy Model...</div></div>", unsafe_allow_html=True)
-                try:
-                    metrics = train_factcheck_accuracy_model()
-                    st.session_state["fc_metrics"] = metrics
-                    st.success("Model trained & metrics ready.")
-                except Exception as e:
-                    st.error(f"Training failed: {e}")
-    with colB:
-        if "fc_metrics" in st.session_state:
-            m = st.session_state["fc_metrics"]
-            st.subheader("📊 Metrics")
-            st.write(f"**Accuracy:** {m['accuracy']*100:.2f}%")
-            st.write(f"**F1 Score:** {m['f1']:.4f}")
-            st.write(f"**Precision:** {m['precision']:.4f}")
-            st.write(f"**Recall:** {m['recall']:.4f}")
-
-            st.markdown("---")
-            st.subheader("🔍 Predict your own statement")
-            txt = st.text_input("Enter a statement to classify (TRUE/FALSE)", key="predict_input")
-            if st.button("Predict TRUE/FALSE"):
-                try:
-                    predictor = build_predictor()
-                    pred = predictor(txt)
-                    st.success(f"Prediction: **{pred}**")
-                except Exception as e:
-                    st.error(f"Prediction failed: {e}")
-        else:
-            st.info("Train the model to see metrics and enable prediction.")
-    st.markdown("</div>", unsafe_allow_html=True)
-
-# ------------------------------------------------------------------------------
-# Footer / notes
-# ------------------------------------------------------------------------------
-st.markdown("<div style='padding:12px 0; text-align:center; opacity:0.75;'>Made with ❤️ — AI Fact-Check Portal · Tip: add FACTCHECK_API_KEY in Streamlit Secrets for full FactCheck API support.</div>", unsafe_allow_html=True)
+    st.write("Query Google FactCheck Tools API. Configure your API key in Streamlit Secrets to avoid usage limits.
